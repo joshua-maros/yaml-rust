@@ -1,6 +1,6 @@
-use linked_hash_map::LinkedHashMap;
 use crate::parser::*;
 use crate::scanner::{Marker, ScanError, TScalarStyle, TokenType};
+use linked_hash_map::LinkedHashMap;
 use std::collections::BTreeMap;
 use std::f64;
 use std::i64;
@@ -29,12 +29,15 @@ use std::vec;
 pub enum Yaml {
     /// Float types are stored as String and parsed on demand.
     /// Note that f64 does NOT implement Eq trait and can NOT be stored in BTreeMap.
+    #[cfg(not(feature = "strict"))]
     Real(string::String),
     /// YAML int is stored as i64.
+    #[cfg(not(feature = "strict"))]
     Integer(i64),
     /// YAML scalar.
     String(string::String),
     /// YAML bool, e.g. `true` or `false`.
+    #[cfg(not(feature = "strict"))]
     Boolean(bool),
     /// YAML array, can be accessed as a `Vec`.
     Array(self::Array),
@@ -43,6 +46,7 @@ pub enum Yaml {
     /// Insertion order will match the order of insertion into the map.
     Hash(self::Hash),
     /// Alias, not fully supported yet.
+    #[cfg(not(feature = "strict"))]
     Alias(usize),
     /// YAML null, e.g. `null` or `~`.
     Null,
@@ -57,6 +61,7 @@ pub type Hash = LinkedHashMap<Yaml, Yaml>;
 
 // parse f64 as Core schema
 // See: https://github.com/chyh1990/yaml-rust/issues/51
+#[cfg(not(feature = "strict"))]
 fn parse_f64(v: &str) -> Option<f64> {
     match v {
         ".inf" | ".Inf" | ".INF" | "+.inf" | "+.Inf" | "+.INF" => Some(f64::INFINITY),
@@ -112,28 +117,7 @@ impl MarkedEventReceiver for YamlLoader {
                 } else if let Some(TokenType::Tag(ref handle, ref suffix)) = tag {
                     // XXX tag:yaml.org,2002:
                     if handle == "!!" {
-                        match suffix.as_ref() {
-                            "bool" => {
-                                // "true" or "false"
-                                match v.parse::<bool>() {
-                                    Err(_) => Yaml::BadValue,
-                                    Ok(v) => Yaml::Boolean(v),
-                                }
-                            }
-                            "int" => match v.parse::<i64>() {
-                                Err(_) => Yaml::BadValue,
-                                Ok(v) => Yaml::Integer(v),
-                            },
-                            "float" => match parse_f64(&v) {
-                                Some(_) => Yaml::Real(v),
-                                None => Yaml::BadValue,
-                            },
-                            "null" => match v.as_ref() {
-                                "~" | "null" => Yaml::Null,
-                                _ => Yaml::BadValue,
-                            },
-                            _ => Yaml::String(v),
-                        }
+                        Yaml::from_str_with_suffix(v, suffix)
                     } else {
                         Yaml::String(v)
                     }
@@ -233,19 +217,24 @@ pub fn $name(self) -> Option<$t> {
 );
 
 impl Yaml {
+    #[cfg(not(feature = "strict"))]
     define_as!(as_bool, bool, Boolean);
+    #[cfg(not(feature = "strict"))]
     define_as!(as_i64, i64, Integer);
 
     define_as_ref!(as_str, &str, String);
     define_as_ref!(as_hash, &Hash, Hash);
     define_as_ref!(as_vec, &Array, Array);
 
+    #[cfg(not(feature = "strict"))]
     define_into!(into_bool, bool, Boolean);
+    #[cfg(not(feature = "strict"))]
     define_into!(into_i64, i64, Integer);
     define_into!(into_string, String, String);
     define_into!(into_hash, Hash, Hash);
     define_into!(into_vec, Array, Array);
 
+    #[cfg(not(feature = "strict"))]
     pub fn is_null(&self) -> bool {
         match *self {
             Yaml::Null => true,
@@ -267,6 +256,7 @@ impl Yaml {
         }
     }
 
+    #[cfg(not(feature = "strict"))]
     pub fn as_f64(&self) -> Option<f64> {
         match *self {
             Yaml::Real(ref v) => parse_f64(v),
@@ -274,6 +264,7 @@ impl Yaml {
         }
     }
 
+    #[cfg(not(feature = "strict"))]
     pub fn into_f64(self) -> Option<f64> {
         match self {
             Yaml::Real(ref v) => parse_f64(v),
@@ -286,6 +277,7 @@ impl Yaml {
 impl Yaml {
     // Not implementing FromStr because there is no possibility of Error.
     // This function falls back to Yaml::String if nothing else matches.
+    #[cfg(not(feature = "strict"))]
     pub fn from_str(v: &str) -> Yaml {
         if v.starts_with("0x") {
             if let Ok(i) = i64::from_str_radix(&v[2..], 16) {
@@ -312,6 +304,46 @@ impl Yaml {
             _ => Yaml::String(v.to_owned()),
         }
     }
+
+    #[cfg(not(feature = "strict"))]
+    fn from_str_with_suffix(v: String, suffix: &str) -> Yaml {
+        match suffix.as_ref() {
+            "bool" => {
+                // "true" or "false"
+                match v.parse::<bool>() {
+                    Err(_) => Yaml::BadValue,
+                    Ok(v) => Yaml::Boolean(v),
+                }
+            }
+            "int" => match v.parse::<i64>() {
+                Err(_) => Yaml::BadValue,
+                Ok(v) => Yaml::Integer(v),
+            },
+            "float" => match parse_f64(&v) {
+                Some(_) => Yaml::Real(v),
+                None => Yaml::BadValue,
+            },
+            "null" => match v.as_ref() {
+                "~" | "null" => Yaml::Null,
+                _ => Yaml::BadValue,
+            },
+            _ => Yaml::String(v),
+        }
+    }
+
+    #[cfg(feature = "strict")]
+    pub fn from_str(v: &str) -> Yaml {
+        if v == "~" {
+            Yaml::Null
+        } else {
+            Yaml::String(v.to_owned())
+        }
+    }
+
+    #[cfg(feature = "strict")]
+    pub fn from_str_with_suffix(v: String, _suffix: &str) -> Yaml {
+        Yaml::String(v)
+    }
 }
 
 static BAD_VALUE: Yaml = Yaml::BadValue;
@@ -330,11 +362,24 @@ impl<'a> Index<&'a str> for Yaml {
 impl Index<usize> for Yaml {
     type Output = Yaml;
 
+    #[cfg(not(feature = "strict"))]
     fn index(&self, idx: usize) -> &Yaml {
         if let Some(v) = self.as_vec() {
             v.get(idx).unwrap_or(&BAD_VALUE)
         } else if let Some(v) = self.as_hash() {
             let key = Yaml::Integer(idx as i64);
+            v.get(&key).unwrap_or(&BAD_VALUE)
+        } else {
+            &BAD_VALUE
+        }
+    }
+
+    #[cfg(feature = "strict")]
+    fn index(&self, idx: usize) -> &Yaml {
+        if let Some(v) = self.as_vec() {
+            v.get(idx).unwrap_or(&BAD_VALUE)
+        } else if let Some(v) = self.as_hash() {
+            let key = Yaml::String(format!("{}", idx));
             v.get(&key).unwrap_or(&BAD_VALUE)
         } else {
             &BAD_VALUE
@@ -367,9 +412,11 @@ impl Iterator for YamlIter {
 
 #[cfg(test)]
 mod test {
-    use std::f64;
     use crate::yaml::*;
+    use std::f64;
+
     #[test]
+    #[cfg(not(feature = "strict"))]
     fn test_coerce() {
         let s = "---
 a: 1
@@ -381,6 +428,22 @@ c: [1, 2]
         assert_eq!(doc["a"].as_i64().unwrap(), 1i64);
         assert_eq!(doc["b"].as_f64().unwrap(), 2.2f64);
         assert_eq!(doc["c"][1].as_i64().unwrap(), 2i64);
+        assert!(doc["d"][0].is_badvalue());
+    }
+
+    #[test]
+    #[cfg(feature = "strict")]
+    fn test_coerce() {
+        let s = "---
+a: 1
+b: 2.2
+c: [1, 2]
+";
+        let out = YamlLoader::load_from_str(&s).unwrap();
+        let doc = &out[0];
+        assert_eq!(doc["a"].as_str().unwrap().parse::<i64>().unwrap(), 1i64);
+        assert_eq!(doc["b"].as_str().unwrap().parse::<f64>().unwrap(), 2.2f64);
+        assert_eq!(doc["c"][1].as_str().unwrap().parse::<i64>().unwrap(), 2i64);
         assert!(doc["d"][0].is_badvalue());
     }
 
@@ -430,6 +493,7 @@ a7: 你好
     }
 
     #[test]
+    #[cfg(not(feature = "strict"))]
     fn test_anchor() {
         let s = "
 a1: &DEFAULT
@@ -440,6 +504,20 @@ a2: *DEFAULT
         let out = YamlLoader::load_from_str(&s).unwrap();
         let doc = &out[0];
         assert_eq!(doc["a2"]["b1"].as_i64().unwrap(), 4);
+    }
+
+    #[test]
+    #[cfg(feature = "strict")]
+    fn test_anchor() {
+        let s = "
+a1: &DEFAULT
+    b1: 4
+    b2: d
+a2: *DEFAULT
+";
+        let out = YamlLoader::load_from_str(&s).unwrap();
+        let doc = &out[0];
+        assert_eq!(doc["a2"]["b1"].as_str().unwrap().parse::<i32>().unwrap(), 4);
     }
 
     #[test]
@@ -464,6 +542,7 @@ a1: &DEFAULT
     }
 
     #[test]
+    #[cfg(not(feature = "strict"))]
     fn test_plain_datatype() {
         let s = "
 - 'string'
@@ -559,6 +638,7 @@ a1: &DEFAULT
     }
 
     #[test]
+    #[cfg(not(feature = "strict"))]
     fn test_plain_datatype_with_into_methods() {
         let s = "
 - 'string'
@@ -633,6 +713,7 @@ c: ~
     }
 
     #[test]
+    #[cfg(not(feature = "strict"))]
     fn test_integer_key() {
         let s = "
 0:
@@ -643,6 +724,27 @@ c: ~
         let out = YamlLoader::load_from_str(&s).unwrap();
         let first = out.into_iter().next().unwrap();
         assert_eq!(first[0]["important"].as_bool().unwrap(), true);
+    }
+
+    #[test]
+    #[cfg(feature = "strict")]
+    fn test_integer_key() {
+        let s = "
+0:
+    important: true
+1:
+    important: false
+";
+        let out = YamlLoader::load_from_str(&s).unwrap();
+        let first = out.into_iter().next().unwrap();
+        assert_eq!(
+            first[0]["important"]
+                .as_str()
+                .unwrap()
+                .parse::<bool>()
+                .unwrap(),
+            true
+        );
     }
 
     #[test]

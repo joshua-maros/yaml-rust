@@ -75,6 +75,7 @@ include!("spec_test.rs.inc");
 //}
 
 #[test]
+#[cfg(not(feature = "strict"))]
 fn test_mapvec_legal() {
     use yaml_rust::yaml::{Array, Hash, Yaml};
     use yaml_rust::{YamlEmitter, YamlLoader};

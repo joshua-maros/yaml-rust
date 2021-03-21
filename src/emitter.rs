@@ -149,6 +149,7 @@ impl<'a> YamlEmitter<'a> {
         Ok(())
     }
 
+    #[cfg(not(feature = "strict"))]
     fn emit_node(&mut self, node: &Yaml) -> EmitResult {
         match *node {
             Yaml::Array(ref v) => self.emit_array(v),
@@ -183,6 +184,26 @@ impl<'a> YamlEmitter<'a> {
             }
             // XXX(chenyh) Alias
             _ => Ok(()),
+        }
+    }
+
+    #[cfg(feature = "strict")]
+    fn emit_node(&mut self, node: &Yaml) -> EmitResult {
+        match *node {
+            Yaml::Array(ref v) => self.emit_array(v),
+            Yaml::Hash(ref h) => self.emit_hash(h),
+            Yaml::String(ref v) => {
+                if need_quotes(v) {
+                    escape_str(self.writer, v)?;
+                } else {
+                    write!(self.writer, "{}", v)?;
+                }
+                Ok(())
+            }
+            Yaml::Null | Yaml::BadValue => {
+                write!(self.writer, "~")?;
+                Ok(())
+            }
         }
     }
 
@@ -365,7 +386,7 @@ a4:
         println!("emitted:\n{}", writer);
         let docs_new = match YamlLoader::load_from_str(&writer) {
             Ok(y) => y,
-            Err(e) => panic!(format!("{}", e)),
+            Err(e) => panic!("{}", e),
         };
         let doc_new = &docs_new[0];
 
@@ -402,13 +423,14 @@ products:
         }
         let docs_new = match YamlLoader::load_from_str(&writer) {
             Ok(y) => y,
-            Err(e) => panic!(format!("{}", e)),
+            Err(e) => panic!("{}", e),
         };
         let doc_new = &docs_new[0];
         assert_eq!(doc, doc_new);
     }
 
     #[test]
+    #[cfg(not(feature = "strict"))]
     fn test_emit_avoid_quotes() {
         let s = r#"---
 a7: 你好
@@ -456,6 +478,7 @@ z: string with spaces"#;
     }
 
     #[test]
+    #[cfg(not(feature = "strict"))]
     fn emit_quoted_bools() {
         let input = r#"---
 string0: yes

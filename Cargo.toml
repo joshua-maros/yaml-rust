@@ -10,6 +10,12 @@ repository = "https://github.com/chyh1990/yaml-rust"
 readme = "README.md"
 edition = "2018"
 
+[features]
+# Enables a 'strict mode' where the parser never guesses the datatype of
+# anything, it is up to the programmer to indicate which datatype they are
+# expecting.
+strict = []
+
 [dependencies]
 linked-hash-map = "0.5.3"
 
